@@ -1,7 +1,8 @@
 # AI-generated image detection
 
-CSCI 594: a custom CNN trained from scratch on CIFAKE, with and without
-data augmentation. Neither experiment uses pretrained weights.
+CSCI 594: AI-generated image detection on CIFAKE, comparing a custom CNN
+trained from scratch with pretrained ConvNeXt V2-Tiny. The scratch CNN has
+separate experiments with and without data augmentation.
 
 ## Setup
 
@@ -102,6 +103,70 @@ Evaluation runs on CPU and saves `test_metrics.json` with loss, accuracy,
 precision, recall, F1, and a confusion matrix. Rows are true labels and columns
 are predictions, both ordered REAL, FAKE. Do not tune the model using test results.
 
+## ConvNeXt V2-Tiny on an NVIDIA GPU
+
+Keep the CPU environment and create a separate GPU environment with Python 3.12:
+
+```bash
+.venv/bin/python -m venv .venv-gpu
+.venv-gpu/bin/python -m pip install torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cu132
+.venv-gpu/bin/python -m pip install -r requirements-convnext.txt
+.venv-gpu/bin/python -c "import torch; assert torch.cuda.is_available(); print(torch.cuda.get_device_name(0))"
+```
+
+These CUDA 13.2 packages target the project's RTX 5050 laptop GPU and its existing
+NVIDIA 595.99.02 driver. Other systems should choose compatible packages from the
+[PyTorch installation instructions](https://pytorch.org/get-started/locally/).
+No system CUDA toolkit is required for these prebuilt packages. GPU commands
+must run in a context that can access the GPU; a restricted agent sandbox may
+hide GPU devices even when training from the user's terminal works.
+
+The model is `convnextv2_tiny.fcmae_ft_in1k`, pretrained using FCMAE and fine-tuned
+on ImageNet-1K. Its classification head is replaced with two outputs. See the
+[model card](https://huggingface.co/timm/convnextv2_tiny.fcmae_ft_in1k) and
+[paper](https://arxiv.org/abs/2301.00808).
+Weights download into the ignored `data/.cache/` directory.
+
+First run a one-epoch pilot:
+
+```bash
+.venv-gpu/bin/python -u train.py --model convnextv2-tiny --device cuda --amp --augment --batch-size 16 --workers 2 --epochs 1 --output runs/convnextv2-pilot
+```
+
+The recorded RTX 5050 pilot completed one training/validation epoch in 611.6
+seconds (10.2 minutes), with 96.849% validation accuracy and validation F1 0.9687.
+At that rate, 20 epochs would take about 3 hours 25 minutes, excluding setup;
+actual runtime can vary. This is a preliminary validation result, not a final
+test result. The earlier custom-CNN timings were measured on CPU.
+
+Then fine-tune for 20 epochs in a new directory:
+
+```bash
+.venv-gpu/bin/python -u train.py --model convnextv2-tiny --device cuda --amp --augment --batch-size 16 --workers 2 --epochs 20 --output runs/convnextv2
+```
+
+All model parameters are fine-tuned with Adam, learning rate 0.0001 and weight
+decay 0.0001. The run starts from pretrained weights; it does not resume the
+pilot. CUDA mixed precision reduces memory usage. `--device cuda` fails clearly
+if CUDA is unavailable rather than silently running this experiment on CPU.
+
+The saved split and label mapping remain unchanged. Native 32x32 images receive
+the same training-only crops/flips used by the augmented CNN, then are resized
+to 224x224 using bicubic interpolation and normalized with the pretrained
+model's mean/std. Validation and test use deterministic resizing and normalization.
+Upsampling adds no image detail. This compares full modeling approaches, with
+differences in architecture, pretraining, preprocessing, and training settings.
+
+After selecting the final checkpoint using validation F1:
+
+```bash
+.venv-gpu/bin/python evaluate.py runs/convnextv2/best.pt --device cuda --batch-size 16
+```
+
+Evaluation restores the architecture and preprocessing from the checkpoint.
+Existing custom-CNN checkpoints remain supported. It defaults to CPU; CUDA
+evaluation uses mixed precision when the checkpoint was trained with `--amp`.
+
 ## Recorded CIFAKE results
 
 Both experiments use seed 42, the same saved splits and hyperparameters, and
@@ -134,3 +199,6 @@ Checks cover split reproducibility and leakage, learning a tiny synthetic sample
 checkpoint round trips, positive-class metrics, and augmentation restricted to
 training images with labels preserved. Synthetic learning checks
 implementation behavior; real CIFAKE performance must come from an actual run.
+For ConvNeXt and GPU checks, run the same test command using
+`.venv-gpu/bin/python`. Optional ConvNeXt tests are skipped if `timm` is absent;
+the CUDA training-step test is skipped when a GPU is inaccessible.

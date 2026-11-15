@@ -1,4 +1,10 @@
+import os
+from pathlib import Path
+
 from torch import nn
+
+
+CONVNEXT_NAME = "convnextv2_tiny.fcmae_ft_in1k"
 
 
 class SmallCNN(nn.Module):
@@ -22,3 +28,16 @@ class SmallCNN(nn.Module):
 
     def forward(self, images):
         return self.classifier(self.features(images).flatten(1))
+
+
+def build_model(name="small-cnn", pretrained=False):
+    if name == "small-cnn":
+        return SmallCNN()
+    if name != "convnextv2-tiny":
+        raise ValueError(f"Unknown model: {name}")
+    cache = Path(__file__).resolve().parent / "data/.cache"
+    os.environ.setdefault("HF_HOME", str(cache / "huggingface"))
+    os.environ.setdefault("TORCH_HOME", str(cache / "torch"))
+    import timm
+
+    return timm.create_model(CONVNEXT_NAME, pretrained=pretrained, num_classes=2)

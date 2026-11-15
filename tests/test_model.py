@@ -1,5 +1,6 @@
 import io
 import csv
+import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -9,7 +10,7 @@ import torch
 from PIL import Image
 
 from model import SmallCNN
-from train import CifakeDataset, classification_metrics
+from train import CifakeDataset, classification_metrics, make_transform
 
 
 class ModelTests(unittest.TestCase):
@@ -71,12 +72,42 @@ class ModelTests(unittest.TestCase):
                 self.assertTrue(all(tensor.shape == (3, 32, 32) and label == 1 for tensor, label in samples))
                 self.assertTrue(any(not torch.equal(samples[0][0], tensor) for tensor, _ in samples[1:]))
                 self.assertTrue(all(torch.isfinite(tensor).all() and tensor.abs().max() <= 1 for tensor, _ in samples))
+                resized = CifakeDataset("train", augment=True, transform=make_transform(224))
+                self.assertEqual(resized[0][0].shape, (3, 224, 224))
+                self.assertEqual(resized[0][1], 1)
                 for split in ("val", "test"):
                     evaluation = CifakeDataset(split)
                     torch.testing.assert_close(evaluation[0][0], evaluation[0][0])
                     self.assertEqual(evaluation[0][1], 1)
                     with self.assertRaises(ValueError):
                         CifakeDataset(split, augment=True)
+
+    def test_evaluation_loads_legacy_checkpoint(self):
+        import evaluate
+
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "splits").mkdir()
+            (root / "splits/cifake.csv").write_text(
+                "path,label,split\ntest/REAL/a.jpg,0,test\ntest/FAKE/b.jpg,1,test\n")
+            for relative in ("test/REAL/a.jpg", "test/FAKE/b.jpg"):
+                path = root / "data/cifake" / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                Image.new("RGB", (32, 32)).save(path)
+            model = SmallCNN()
+            with torch.no_grad():
+                for parameter in model.parameters():
+                    parameter.zero_()
+            checkpoint = root / "best.pt"
+            torch.save({"model": model.state_dict(), "epoch": 1,
+                        "config": {"threads": 2, "normalization_mean": [0.5] * 3,
+                                   "normalization_std": [0.5] * 3}}, checkpoint)
+            with patch("train.ROOT", root), patch("sys.argv", ["evaluate.py", str(checkpoint)]), patch("sys.stdout", new_callable=io.StringIO):
+                evaluate.main()
+            metrics = json.loads((root / "test_metrics.json").read_text())
+            self.assertEqual(metrics["images"], 2)
+            self.assertEqual(metrics["confusion_matrix"], [[1, 0], [1, 0]])
+            self.assertEqual(metrics["model"], "small-cnn")
 
 
 if __name__ == "__main__":
