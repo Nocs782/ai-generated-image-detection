@@ -169,23 +169,35 @@ evaluation uses mixed precision when the checkpoint was trained with `--amp`.
 
 ## Recorded CIFAKE results
 
-Both experiments use seed 42, the same saved splits and hyperparameters, and
-the 20,000-image official test set. Checkpoints were selected by validation F1;
-epoch 20 was selected in both runs. FAKE is the positive class.
+All three experiments use seed 42, the same saved splits, and the 20,000-image
+official test set. Checkpoints were selected by validation F1: epoch 20 for
+both custom-CNN runs and epoch 11 for ConvNeXt V2. FAKE is the positive class.
+Model-specific training settings are recorded in each run's config.
 
-| Model | Test accuracy | Test precision | Test recall | Test F1 | Training + validation time |
-|---|---:|---:|---:|---:|---:|
-| CNN without augmentation | 95.745% | 95.924% | 95.550% | 95.737% | 16.0 min |
-| CNN with augmentation | 95.645% | 95.622% | 95.670% | 95.646% | 18.2 min |
+| Model | Device | Test accuracy | Test precision | Test recall | Test F1 | Training + validation time |
+|---|---|---:|---:|---:|---:|---:|
+| CNN without augmentation | CPU | 95.745% | 95.924% | 95.550% | 95.737% | 16.0 min |
+| CNN with augmentation | CPU | 95.645% | 95.622% | 95.670% | 95.646% | 18.2 min |
+| Pretrained ConvNeXt V2-Tiny with augmentation | RTX 5050 | 98.195% | 98.046% | 98.350% | 98.198% | 197.8 min |
 
 Augmentation reduced test accuracy by 0.10 percentage points and F1 by about
 0.09 percentage points in this run. The small difference from one seed does
-not establish a consistent effect. The original test set retains 38 duplicate
+not establish a consistent effect.
+
+ConvNeXt V2 improved test accuracy by 2.45 percentage points over the scratch
+baseline, with 361 errors versus 851. Its selected epoch-11 checkpoint achieved
+98.242% validation accuracy. Validation F1 was lower at epoch 20, so the saved
+best checkpoint was used for test evaluation. These runs compare complete
+modeling approaches; architecture, pretraining, input resolution, and training
+settings differ. The timings also use different hardware.
+
+The original test set retains 38 duplicate
 images, as documented in the data audit; identical-image overlap between splits
 was removed. External-dataset generalization has not been evaluated.
 
-Full results: [baseline](runs/cnn-baseline/test_metrics.json) and
-[augmented CNN](runs/cnn-augmented/test_metrics.json). Training histories and
+Full results: [baseline](runs/cnn-baseline/test_metrics.json),
+[augmented CNN](runs/cnn-augmented/test_metrics.json), and
+[ConvNeXt V2](runs/convnextv2/test_metrics.json). Training histories and
 configs are stored alongside these files. Keep the test set for reporting;
 select any further hyperparameters using validation data.
 
