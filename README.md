@@ -102,6 +102,28 @@ Evaluation runs on CPU and saves `test_metrics.json` with loss, accuracy,
 precision, recall, F1, and a confusion matrix. Rows are true labels and columns
 are predictions, both ordered REAL, FAKE. Do not tune the model using test results.
 
+## Recorded CIFAKE results
+
+Both experiments use seed 42, the same saved splits and hyperparameters, and
+the 20,000-image official test set. Checkpoints were selected by validation F1;
+epoch 20 was selected in both runs. FAKE is the positive class.
+
+| Model | Test accuracy | Test precision | Test recall | Test F1 | Training + validation time |
+|---|---:|---:|---:|---:|---:|
+| CNN without augmentation | 95.745% | 95.924% | 95.550% | 95.737% | 16.0 min |
+| CNN with augmentation | 95.645% | 95.622% | 95.670% | 95.646% | 18.2 min |
+
+Augmentation reduced test accuracy by 0.10 percentage points and F1 by about
+0.09 percentage points in this run. The small difference from one seed does
+not establish a consistent effect. The original test set retains 38 duplicate
+images, as documented in the data audit; identical-image overlap between splits
+was removed. External-dataset generalization has not been evaluated.
+
+Full results: [baseline](runs/cnn-baseline/test_metrics.json) and
+[augmented CNN](runs/cnn-augmented/test_metrics.json). Training histories and
+configs are stored alongside these files. Keep the test set for reporting;
+select any further hyperparameters using validation data.
+
 ## Checks
 
 ```bash
