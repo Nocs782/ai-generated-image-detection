@@ -12,3 +12,5 @@ data/
 .aws
 .codex/
 .agents/
+AGENTS.md
+agent.md
