@@ -1,0 +1,26 @@
+{
+  "checkpoint": "runs/cnn-baseline/best.pt",
+  "selected_epoch": 20,
+  "positive_class": "FAKE",
+  "confusion_matrix_order": [
+    "REAL",
+    "FAKE"
+  ],
+  "confusion_matrix_axes": "rows=true labels, columns=predictions",
+  "accuracy": 0.95745,
+  "precision": 0.9592410400562192,
+  "recall": 0.9555,
+  "f1": 0.9573668653875056,
+  "confusion_matrix": [
+    [
+      9594,
+      406
+    ],
+    [
+      445,
+      9555
+    ]
+  ],
+  "images": 20000,
+  "loss": 0.11238385679125786
+}
