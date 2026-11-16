@@ -1,7 +1,8 @@
-"""Train a scratch CNN or fine-tune ConvNeXt V2; test data is not loaded here."""
+"""Train a scratch CNN or fine-tune ConvNeXt/MambaVision; test data is not loaded here."""
 
 import argparse
 import csv
+from importlib.metadata import version
 import json
 import os
 import random
@@ -108,10 +109,10 @@ def run_epoch(model, loader, device, optimizer=None, scaler=None, amp=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model", choices=("small-cnn", "convnextv2-tiny"), default="small-cnn")
+    parser.add_argument("--model", choices=("small-cnn", "convnextv2-tiny", "mambavision-t"), default="small-cnn")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=64)
-    parser.add_argument("--lr", type=float, help="default: 0.001 for small CNN, 0.0001 for ConvNeXt")
+    parser.add_argument("--lr", type=float, help="default: 0.001 for small CNN, 0.0001 for pretrained models")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--threads", type=int, default=6)
     parser.add_argument("--workers", type=int, default=0, help="data-loading worker processes")
@@ -122,7 +123,7 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "runs/cnn-baseline")
     args = parser.parse_args()
     if args.lr is None:
-        args.lr = 1e-4 if args.model == "convnextv2-tiny" else 1e-3
+        args.lr = 1e-3 if args.model == "small-cnn" else 1e-4
     if min(args.epochs, args.batch_size, args.threads) < 1 or args.lr <= 0 or args.workers < 0:
         parser.error("epochs, batch size, threads, and learning rate must be positive; workers cannot be negative")
     if args.output.exists():
@@ -136,11 +137,13 @@ def main():
     device = torch.device(("cuda" if torch.cuda.is_available() else "cpu") if args.device == "auto" else args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is unavailable. Use CUDA-enabled PyTorch and run where the GPU is accessible.")
+    if args.model == "mambavision-t" and device.type != "cuda":
+        parser.error("MambaVision requires CUDA; use the Mamba environment with --device cuda.")
     if args.amp and device.type != "cuda":
         parser.error("--amp requires a CUDA device.")
     if device.type == "cuda":
         torch.backends.cudnn.benchmark = False
-    pretrained = args.model == "convnextv2-tiny"
+    pretrained = args.model != "small-cnn"
     model = build_model(args.model, pretrained=pretrained).to(device)
     image_size = 224 if pretrained else 32
     mean = model.pretrained_cfg["mean"] if pretrained else (0.5,) * 3
@@ -174,6 +177,8 @@ def main():
         import timm
 
         config.update(timm=str(timm.__version__), pretrained_cfg=model.pretrained_cfg)
+    if args.model == "mambavision-t":
+        config.update(transformers=version("transformers"), mamba_ssm=version("mamba-ssm"))
     (args.output / "config.json").write_text(json.dumps(config, indent=2) + "\n")
     print(f"Model: {args.model}; device: {device}; AMP: {args.amp}; parameters: {config['parameters']:,}; "
           f"training images: {len(train_data):,}; validation images: {len(val_data):,}", flush=True)

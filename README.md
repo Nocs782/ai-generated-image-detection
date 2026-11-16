@@ -1,8 +1,8 @@
 # AI-generated image detection
 
 CSCI 594: AI-generated image detection on CIFAKE, comparing a custom CNN
-trained from scratch with pretrained ConvNeXt V2-Tiny. The scratch CNN has
-separate experiments with and without data augmentation.
+trained from scratch with pretrained ConvNeXt V2-Tiny and MambaVision-T.
+The scratch CNN has separate experiments with and without data augmentation.
 
 ## Setup
 
@@ -167,6 +167,67 @@ Evaluation restores the architecture and preprocessing from the checkpoint.
 Existing custom-CNN checkpoints remain supported. It defaults to CPU; CUDA
 evaluation uses mixed precision when the checkpoint was trained with `--amp`.
 
+## MambaVision-T on an NVIDIA GPU
+
+MambaVision-T is a hybrid Mamba/Transformer vision model. Use a separate Python
+3.12 environment so its dependency versions do not affect the working ConvNeXt
+environment:
+
+```bash
+.venv/bin/python -m venv .venv-mamba
+.venv-mamba/bin/python -m pip install --timeout 120 torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu130
+.venv-mamba/bin/python -m pip install --timeout 120 -r requirements-mamba.txt \
+  "https://github.com/state-spaces/mamba/releases/download/v2.3.2.post1/mamba_ssm-2.3.2.post1%2Bcu13torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
+.venv-mamba/bin/python -m pip check
+```
+
+The install command supplies the official `mamba-ssm` CUDA 13 wheel for
+PyTorch 2.10, Python 3.12, Linux x86-64, and the C++11 ABI. It includes the
+selective-scan CUDA extension, so no local CUDA compilation is needed.
+Other platforms require a matching wheel rather than this environment's file.
+
+We use [NVIDIA's official Hugging Face model](https://huggingface.co/nvidia/MambaVision-T-1K),
+pinned to revision `b1de77e17599566d98efb701c0231b1095dc3a67`. Transformers loads
+the reviewed model code from that immutable revision and safetensors weights.
+The underlying PyTorch model is retained and its ImageNet head is replaced
+with a two-class linear layer. This avoids the pip `mambavision` package's old
+dependency pins without modifying NVIDIA's model code. Weights and downloaded
+model code stay under the ignored `data/.cache/` directory.
+
+Start with a one-epoch pilot:
+
+```bash
+.venv-mamba/bin/python -u train.py --model mambavision-t --device cuda --amp --augment --batch-size 16 --workers 2 --epochs 1 --output runs/mambavision-pilot
+```
+
+The recorded RTX 5050 pilot completed one training/validation epoch in 324.4
+seconds (5.4 minutes), with 96.677% validation accuracy and validation F1 0.9669.
+At that pace, 20 epochs would take about 1 hour 48 minutes, excluding setup;
+actual runtime can vary. These are preliminary validation results. The pilot
+does not evaluate the official test set.
+
+Then start a fresh 20-epoch run:
+
+```bash
+.venv-mamba/bin/python -u train.py --model mambavision-t --device cuda --amp --augment --batch-size 16 --workers 2 --epochs 20 --output runs/mambavision
+```
+
+This fine-tunes all parameters with Adam, learning rate 0.0001, weight decay
+0.0001, and CUDA mixed precision. It uses the same saved splits, training-only
+augmentation, 224x224 resizing, and ImageNet normalization as ConvNeXt. The
+config records the model revision, Mamba/Transformers versions, and the model's
+default stochastic-depth rate. Seeds and PyTorch deterministic settings are
+recorded/requested; custom CUDA kernels do not guarantee bitwise reproducibility.
+
+After model selection by validation F1, evaluate with CUDA:
+
+```bash
+.venv-mamba/bin/python evaluate.py runs/mambavision/best.pt --device cuda --batch-size 16
+```
+
+The CUDA selective-scan kernel is required for both training and evaluation.
+The test set is not used in the pilot or for checkpoint selection.
+
 ## Recorded CIFAKE results
 
 All three experiments use seed 42, the same saved splits, and the 20,000-image
@@ -214,3 +275,9 @@ implementation behavior; real CIFAKE performance must come from an actual run.
 For ConvNeXt and GPU checks, run the same test command using
 `.venv-gpu/bin/python`. Optional ConvNeXt tests are skipped if `timm` is absent;
 the CUDA training-step test is skipped when a GPU is inaccessible.
+For MambaVision, use `.venv-mamba/bin/python -m unittest discover -s tests -v`.
+Its integration tests need CUDA, the Mamba dependencies, and access to the pinned
+model configuration/code (cached after the first model load). They compare the
+CUDA scan and its gradients with the reference implementation and check a
+mixed-precision training step plus checkpoint restoration. CPU-only rejection
+checks run even without the optional Mamba dependencies.

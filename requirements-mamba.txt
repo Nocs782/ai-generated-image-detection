@@ -1,0 +1,10 @@
+torch==2.10.0+cu130
+torchvision==0.25.0+cu130
+timm==1.0.15
+transformers==4.50.0
+huggingface-hub==0.36.2
+einops==0.8.1
+quack-kernels==0.6.5
+nvidia-cutlass-dsl==4.8.1
+# Supply the matching official CUDA wheel in the pip command documented in README.
+mamba-ssm==2.3.2.post1

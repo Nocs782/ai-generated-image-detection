@@ -24,6 +24,8 @@ def main():
     if device.type == "cuda" and not torch.cuda.is_available():
         parser.error("CUDA is unavailable in this Python environment or execution context.")
     config = checkpoint["config"]
+    if config.get("model") == "mambavision-t" and device.type != "cuda":
+        parser.error("MambaVision evaluation requires CUDA; use --device cuda in the Mamba environment.")
     torch.set_num_threads(config["threads"])
     model = build_model(config.get("model", "small-cnn"))
     model.load_state_dict(checkpoint["model"])
