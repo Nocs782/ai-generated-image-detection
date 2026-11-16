@@ -1,0 +1,29 @@
+{
+  "checkpoint": "runs/mambavision/best.pt",
+  "selected_epoch": 20,
+  "model": "mambavision-t",
+  "device": "cuda",
+  "amp": true,
+  "positive_class": "FAKE",
+  "confusion_matrix_order": [
+    "REAL",
+    "FAKE"
+  ],
+  "confusion_matrix_axes": "rows=true labels, columns=predictions",
+  "accuracy": 0.9743,
+  "precision": 0.9699762187871581,
+  "recall": 0.9789,
+  "f1": 0.9744176786780808,
+  "confusion_matrix": [
+    [
+      9697,
+      303
+    ],
+    [
+      211,
+      9789
+    ]
+  ],
+  "images": 20000,
+  "loss": 0.06832335630059243
+}

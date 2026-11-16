@@ -230,9 +230,10 @@ The test set is not used in the pilot or for checkpoint selection.
 
 ## Recorded CIFAKE results
 
-All three experiments use seed 42, the same saved splits, and the 20,000-image
+All four experiments use seed 42, the same saved splits, and the 20,000-image
 official test set. Checkpoints were selected by validation F1: epoch 20 for
-both custom-CNN runs and epoch 11 for ConvNeXt V2. FAKE is the positive class.
+both custom-CNN runs and MambaVision-T, and epoch 11 for ConvNeXt V2. FAKE is
+the positive class.
 Model-specific training settings are recorded in each run's config.
 
 | Model | Device | Test accuracy | Test precision | Test recall | Test F1 | Training + validation time |
@@ -240,6 +241,7 @@ Model-specific training settings are recorded in each run's config.
 | CNN without augmentation | CPU | 95.745% | 95.924% | 95.550% | 95.737% | 16.0 min |
 | CNN with augmentation | CPU | 95.645% | 95.622% | 95.670% | 95.646% | 18.2 min |
 | Pretrained ConvNeXt V2-Tiny with augmentation | RTX 5050 | 98.195% | 98.046% | 98.350% | 98.198% | 197.8 min |
+| Pretrained MambaVision-T with augmentation | RTX 5050 | 97.430% | 96.998% | 97.890% | 97.442% | 111.8 min |
 
 Augmentation reduced test accuracy by 0.10 percentage points and F1 by about
 0.09 percentage points in this run. The small difference from one seed does
@@ -252,13 +254,22 @@ best checkpoint was used for test evaluation. These runs compare complete
 modeling approaches; architecture, pretraining, input resolution, and training
 settings differ. The timings also use different hardware.
 
+MambaVision-T completed all 20 epochs in 111.8 minutes. Its selected epoch-20
+checkpoint achieved 97.695% validation accuracy and 97.430% test accuracy,
+with 514 test errors. Test accuracy was 1.685 percentage points above the
+scratch CNN and 0.765 percentage points below ConvNeXt V2. MambaVision took
+less training/validation time on the same GPU in these runs; software versions
+and model defaults differ. Single-seed results do not establish a consistent
+advantage across runs or datasets.
+
 The original test set retains 38 duplicate
 images, as documented in the data audit; identical-image overlap between splits
 was removed. External-dataset generalization has not been evaluated.
 
 Full results: [baseline](runs/cnn-baseline/test_metrics.json),
-[augmented CNN](runs/cnn-augmented/test_metrics.json), and
-[ConvNeXt V2](runs/convnextv2/test_metrics.json). Training histories and
+[augmented CNN](runs/cnn-augmented/test_metrics.json),
+[ConvNeXt V2](runs/convnextv2/test_metrics.json), and
+[MambaVision-T](runs/mambavision/test_metrics.json). Training histories and
 configs are stored alongside these files. Keep the test set for reporting;
 select any further hyperparameters using validation data.
 
