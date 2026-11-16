@@ -24,10 +24,9 @@ ROOT = Path(__file__).resolve().parent
 
 
 def make_transform(image_size=32, mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5)):
-    resize = []
-    if image_size != 32:
-        resize.append(transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC))
-    return transforms.Compose([*resize, transforms.ToTensor(), transforms.Normalize(mean, std)])
+    return transforms.Compose([
+        transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.ToTensor(), transforms.Normalize(mean, std)])
 
 
 TRANSFORM = make_transform()

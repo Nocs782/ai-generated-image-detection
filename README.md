@@ -228,6 +228,65 @@ After model selection by validation F1, evaluate with CUDA:
 The CUDA selective-scan kernel is required for both training and evaluation.
 The test set is not used in the pilot or for checkpoint selection.
 
+## External testing on GenImage
+
+Download `genimage_test.zip` from the
+[GenImage community mirror](https://huggingface.co/datasets/jzousz/GenImage/tree/main)
+and place it in the project root alongside the original CIFAKE `archive.zip`.
+The downloaded archive contains 100,000 images across eight generators.
+Use the original [GenImage project](https://github.com/GenImage-Dataset/GenImage)
+for citation and dataset terms. Raw images and archives stay out of Git.
+
+Prepare the external sample once:
+
+```bash
+.venv/bin/python -u prepare_genimage.py
+```
+
+Preparation selects 625 real and 625 generated images per generator, using
+seed 42 and a sorted/shuffled candidate list: 10,000 images total. Only the
+selected images are extracted into `data/genimage-test/`. The script checks
+selected members' ZIP CRCs, decodes them, excludes identical RGB images across
+the sample, and rejects matches against all original CIFAKE images at native
+resolution or after bicubic resizing to 32x32. Rejected candidates are replaced
+until each generator/class reaches its fixed count. It refuses to overwrite
+existing extracted data. On a fresh clone with tracked manifests but no raw
+images, it regenerates the sample and requires an exact match with the saved
+manifest/audit before keeping the extracted images.
+
+The tracked `splits/genimage.csv` lists every selected path, label, generator,
+and decoded-pixel digest. `splits/genimage_audit.json` records the archive and
+manifest SHA256, selection counts, exclusions, native sizes, and file formats.
+Image and manifest integrity are checked again during evaluation.
+
+Evaluate the four validation-selected checkpoints without further training:
+
+```bash
+.venv/bin/python -u evaluate.py runs/cnn-baseline/best.pt --dataset genimage --batch-size 64
+.venv/bin/python -u evaluate.py runs/cnn-augmented/best.pt --dataset genimage --batch-size 64
+.venv-gpu/bin/python -u evaluate.py runs/convnextv2/best.pt --dataset genimage --device cuda --batch-size 16
+.venv-mamba/bin/python -u evaluate.py runs/mambavision/best.pt --dataset genimage --device cuda --batch-size 16
+```
+
+Each run writes `genimage_metrics.json` next to its checkpoint, preserving
+`test_metrics.json` for CIFAKE. Results include overall and per-generator
+accuracy, precision, recall, F1, loss, and confusion matrices, plus the checkpoint
+SHA256 and sample audit. Overall metrics are computed from summed confusion
+matrices; overall loss is weighted by image count.
+
+External images are converted to RGB and resized directly to the checkpoint's
+input size (32x32 for the custom CNNs, 224x224 for the pretrained models), with
+the checkpoint's normalization and no augmentation. Already-32x32 CIFAKE images
+retain exactly the same preprocessing values. All models use the same external
+manifest; do not choose checkpoints, thresholds, or hyperparameters using these
+external results.
+
+This tests combined shifts in content, generator, native resolution, and
+compression. Real images in this archive are JPEG and generated images are PNG;
+decoding and resizing do not erase compression traces. GenImage's ImageNet
+origins may overlap with pretrained-model exposure. Exact-pixel checks do not
+rule out near duplicates or overlap in pretraining data.
+
 ## Recorded CIFAKE results
 
 All four experiments use seed 42, the same saved splits, and the 20,000-image
@@ -262,9 +321,9 @@ less training/validation time on the same GPU in these runs; software versions
 and model defaults differ. Single-seed results do not establish a consistent
 advantage across runs or datasets.
 
-The original test set retains 38 duplicate
-images, as documented in the data audit; identical-image overlap between splits
-was removed. External-dataset generalization has not been evaluated.
+The original CIFAKE test set retains 38 duplicate images, as documented in the
+data audit; identical-image overlap between splits was removed. External
+GenImage results are reported separately below.
 
 Full results: [baseline](runs/cnn-baseline/test_metrics.json),
 [augmented CNN](runs/cnn-augmented/test_metrics.json),
@@ -272,6 +331,44 @@ Full results: [baseline](runs/cnn-baseline/test_metrics.json),
 [MambaVision-T](runs/mambavision/test_metrics.json). Training histories and
 configs are stored alongside these files. Keep the test set for reporting;
 select any further hyperparameters using validation data.
+
+## Recorded GenImage external results
+
+All four frozen checkpoints were evaluated on the same 10,000-image external
+sample: 5,000 REAL and 5,000 FAKE, with 625 per class for each of eight
+generators. Checkpoints were selected using CIFAKE validation F1 before this
+evaluation. No external images were used for training or model selection.
+The selected sample has no identical native-RGB duplicates or exact CIFAKE
+matches under the checks described above; no candidate exclusions were needed.
+
+| Model | CIFAKE accuracy | GenImage accuracy | GenImage precision | GenImage recall | GenImage F1 | Accuracy drop (percentage points) |
+|---|---:|---:|---:|---:|---:|---:|
+| CNN without augmentation | 95.745% | 58.980% | 59.877% | 54.440% | 57.029% | 36.765 |
+| CNN with augmentation | 95.645% | 59.570% | 60.240% | 56.300% | 58.203% | 36.075 |
+| Pretrained ConvNeXt V2-Tiny | 98.195% | 49.550% | 49.752% | 90.440% | 64.192% | 48.645 |
+| Pretrained MambaVision-T | 97.430% | 49.010% | 49.495% | 97.020% | 65.550% | 48.420 |
+
+High CIFAKE accuracy did not transfer to this external sample. The custom CNNs
+had higher external accuracy, while ConvNeXt and MambaVision were close to the
+50% accuracy of a constant classifier on this balanced sample. ConvNeXt
+incorrectly labeled 4,567 of 5,000 real images as FAKE; MambaVision did so for
+4,950. Their high FAKE recall and higher FAKE F1 must be interpreted alongside
+these false-positive rates and accuracy.
+
+Performance also varied by generator. The scratch CNNs scored about 72–75%
+accuracy on SD v1.4, SD v1.5, and Wukong, but about 45–49% on ADM, BigGAN, and
+VQDM. These results show limited cross-dataset robustness in this experiment;
+they do not isolate generator novelty from changes in content, resolution, or
+compression, and do not establish that one architecture always generalizes
+better. The ImageNet-pretraining caveat above and single-seed training remain
+limitations. Further model development would need separate development data;
+this sample must remain held out for reporting.
+
+Full external results, including per-generator metrics and confusion matrices:
+[baseline CNN](runs/cnn-baseline/genimage_metrics.json),
+[augmented CNN](runs/cnn-augmented/genimage_metrics.json),
+[ConvNeXt V2](runs/convnextv2/genimage_metrics.json), and
+[MambaVision-T](runs/mambavision/genimage_metrics.json).
 
 ## Checks
 
@@ -281,7 +378,10 @@ python -m unittest discover -s tests -v
 
 Checks cover split reproducibility and leakage, learning a tiny synthetic sample,
 checkpoint round trips, positive-class metrics, and augmentation restricted to
-training images with labels preserved. Synthetic learning checks
+training images with labels preserved. External checks cover balanced seeded
+sampling, unsafe archive paths, overlap exclusion, manifest/image integrity,
+per-generator metric aggregation, reconstruction from tracked manifests, and
+preservation of existing CIFAKE results. Synthetic learning checks
 implementation behavior; real CIFAKE performance must come from an actual run.
 For ConvNeXt and GPU checks, run the same test command using
 `.venv-gpu/bin/python`. Optional ConvNeXt tests are skipped if `timm` is absent;
