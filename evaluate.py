@@ -16,7 +16,7 @@ from train import ROOT, CifakeDataset, classification_metrics, make_transform, r
 
 
 class GenImageDataset(Dataset):
-    def __init__(self, transform):
+    def __init__(self, transform, downsample_32=False):
         manifest = ROOT / "splits/genimage.csv"
         self.audit = json.loads((ROOT / "splits/genimage_audit.json").read_text())
         if hashlib.sha256(manifest.read_bytes()).hexdigest() != self.audit["manifest_sha256"]:
@@ -26,6 +26,7 @@ class GenImageDataset(Dataset):
         if not self.rows or len(self.rows) != self.audit["selected_images"]:
             raise ValueError("External manifest count does not match its audit.")
         self.transform = transform
+        self.downsample_32 = downsample_32
 
     def __len__(self):
         return len(self.rows)
@@ -40,6 +41,8 @@ class GenImageDataset(Dataset):
             image = image.convert("RGB")
             if pixel_digest(image) != row["digest"]:
                 raise ValueError(f"External image changed after preparation: {row['path']}")
+            if self.downsample_32:
+                image = image.resize((32, 32), Image.Resampling.BICUBIC)
             return self.transform(image), int(row["label"])
 
 
@@ -49,7 +52,11 @@ def main():
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--dataset", choices=("cifake", "genimage"), default="cifake")
+    parser.add_argument("--genimage-32px", action="store_true",
+                        help="post hoc diagnostic: downsample GenImage to 32x32 before checkpoint preprocessing")
     args = parser.parse_args()
+    if args.genimage_32px and args.dataset != "genimage":
+        parser.error("--genimage-32px requires --dataset genimage.")
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     if args.batch_size < 1:
         parser.error("Batch size must be positive.")
@@ -64,7 +71,8 @@ def main():
     model.load_state_dict(checkpoint["model"])
     model.to(device)
     transform = make_transform(config.get("input_size", 32), config["normalization_mean"], config["normalization_std"])
-    data = GenImageDataset(transform) if args.dataset == "genimage" else CifakeDataset("test", transform=transform)
+    data = (GenImageDataset(transform, downsample_32=args.genimage_32px) if args.dataset == "genimage"
+            else CifakeDataset("test", transform=transform))
     amp = device.type == "cuda" and config.get("amp", False)
     per_generator = {}
     if args.dataset == "genimage":
@@ -88,7 +96,14 @@ def main():
             checkpoint_hash = hashlib.file_digest(handle, "sha256").hexdigest()
         result.update(dataset="genimage", per_generator=per_generator, data_audit=data.audit,
                       checkpoint_sha256=checkpoint_hash, torch=str(torch.__version__))
-    destination = args.checkpoint.parent / ("genimage_metrics.json" if args.dataset == "genimage" else "test_metrics.json")
+    if args.genimage_32px:
+        size = config.get("input_size", 32)
+        result.update(post_hoc=True, experiment="32px_resolution_diagnostic", reference_metrics="genimage_metrics.json",
+                      preprocessing={"rgb": True, "downsample_size": [32, 32], "input_size": [size, size],
+                                     "interpolation": "bicubic", "normalization_mean": config["normalization_mean"],
+                                     "normalization_std": config["normalization_std"], "augmentation": False})
+    external_filename = "genimage_32px_metrics.json" if args.genimage_32px else "genimage_metrics.json"
+    destination = args.checkpoint.parent / (external_filename if args.dataset == "genimage" else "test_metrics.json")
     destination.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({key: value for key, value in result.items() if key not in ("data_audit", "per_generator")}, indent=2))
 

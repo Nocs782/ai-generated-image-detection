@@ -348,8 +348,9 @@ matches under the checks described above; no candidate exclusions were needed.
 | Pretrained ConvNeXt V2-Tiny | 98.195% | 49.550% | 49.752% | 90.440% | 64.192% | 48.645 |
 | Pretrained MambaVision-T | 97.430% | 49.010% | 49.495% | 97.020% | 65.550% | 48.420 |
 
-High CIFAKE accuracy did not transfer to this external sample. The custom CNNs
-had higher external accuracy, while ConvNeXt and MambaVision were close to the
+High CIFAKE accuracy did not transfer to this external sample. Under this
+direct-resize protocol, the custom CNNs had higher external accuracy, while
+ConvNeXt and MambaVision were close to the
 50% accuracy of a constant classifier on this balanced sample. ConvNeXt
 incorrectly labeled 4,567 of 5,000 real images as FAKE; MambaVision did so for
 4,950. Their high FAKE recall and higher FAKE F1 must be interpreted alongside
@@ -370,6 +371,68 @@ Full external results, including per-generator metrics and confusion matrices:
 [ConvNeXt V2](runs/convnextv2/genimage_metrics.json), and
 [MambaVision-T](runs/mambavision/genimage_metrics.json).
 
+## Post hoc 32px resolution diagnostic
+
+After observing the original external results, we added one controlled
+preprocessing diagnostic. The same native GenImage images are first resized
+to 32x32 with bicubic interpolation, then passed through the checkpoint's
+normal input resizing and normalization. ConvNeXt and MambaVision therefore
+receive 32x32 images enlarged to 224x224. The custom CNNs receive the same
+32x32 tensors as in the original external evaluation and serve as controls.
+Bicubic interpolation is retained from the original external pipeline so this
+comparison changes the intermediate resolution without changing the filter.
+This does not reproduce CIFAKE's complete generation or compression process.
+
+Run the fixed diagnostic with the existing checkpoints:
+
+```bash
+.venv/bin/python -u evaluate.py runs/cnn-baseline/best.pt --dataset genimage --genimage-32px --batch-size 64
+.venv/bin/python -u evaluate.py runs/cnn-augmented/best.pt --dataset genimage --genimage-32px --batch-size 64
+.venv-gpu/bin/python -u evaluate.py runs/convnextv2/best.pt --dataset genimage --genimage-32px --device cuda --batch-size 16
+.venv-mamba/bin/python -u evaluate.py runs/mambavision/best.pt --dataset genimage --genimage-32px --device cuda --batch-size 16
+```
+
+Results go into `genimage_32px_metrics.json` next to each checkpoint. They record
+the preprocessing, checkpoint SHA256, original sample audit, and overall and
+per-generator metrics. Original `genimage_metrics.json` and CIFAKE
+`test_metrics.json` files are preserved. Images, labels, sample selection,
+checkpoints, normalization, and classification rule remain fixed; no
+training or threshold tuning is performed.
+
+All four diagnostic evaluations completed on the same 10,000 images:
+
+| Model | Original GenImage accuracy | 32px diagnostic accuracy | Change (percentage points) | 32px precision | 32px recall | 32px F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| CNN without augmentation | 58.980% | 58.980% | 0.000 | 59.877% | 54.440% | 57.029% |
+| CNN with augmentation | 59.570% | 59.570% | 0.000 | 60.240% | 56.300% | 58.203% |
+| Pretrained ConvNeXt V2-Tiny | 49.550% | 59.880% | +10.330 | 60.020% | 59.180% | 59.597% |
+| Pretrained MambaVision-T | 49.010% | 59.810% | +10.800 | 59.464% | 61.640% | 60.532% |
+
+Every overall and per-generator metric for both custom-CNN controls exactly
+matched the original evaluation. The added 32x32 stage increased accuracy for
+both pretrained checkpoints, showing that input resolution history affects
+their predictions on this sample. ConvNeXt's false-positive rate on REAL
+images fell from 91.34% to 39.42%; MambaVision's fell from 99.00% to 42.02%.
+FAKE recall also fell, from 90.44% to 59.18% and from 97.02% to 61.64%,
+respectively. Consequently, FAKE F1 decreased despite the accuracy gains;
+these are changes in the error balance, not improvements in every metric.
+
+On the SD v1.4 group, ConvNeXt reached 73.92% accuracy and MambaVision 73.52%;
+on SD v1.5, they reached 74.08% and 74.48%. Both remain much less accurate
+overall than on CIFAKE. The diagnostic supports a role for preprocessing
+mismatch, but does not explain the remaining content, generator, or compression
+effects, or demonstrate broad real-world reliability.
+
+Full diagnostic metrics and per-generator confusion matrices:
+[baseline CNN](runs/cnn-baseline/genimage_32px_metrics.json),
+[augmented CNN](runs/cnn-augmented/genimage_32px_metrics.json),
+[ConvNeXt V2](runs/convnextv2/genimage_32px_metrics.json), and
+[MambaVision-T](runs/mambavision/genimage_32px_metrics.json).
+
+This is an exploratory analysis chosen after inspecting the external test
+results. Report it alongside the original evaluation, rather than presenting
+it as a new blind test or evidence of generalization to every dataset.
+
 ## Checks
 
 ```bash
@@ -381,8 +444,11 @@ checkpoint round trips, positive-class metrics, and augmentation restricted to
 training images with labels preserved. External checks cover balanced seeded
 sampling, unsafe archive paths, overlap exclusion, manifest/image integrity,
 per-generator metric aggregation, reconstruction from tracked manifests, and
-preservation of existing CIFAKE results. Synthetic learning checks
-implementation behavior; real CIFAKE performance must come from an actual run.
+preservation of existing CIFAKE results. Resolution-diagnostic checks compare
+the preprocessing with an explicit two-stage resize, verify unchanged 32x32
+CNN inputs, and confirm original external results are preserved. Synthetic
+learning checks implementation behavior; real CIFAKE performance must come
+from an actual run.
 For ConvNeXt and GPU checks, run the same test command using
 `.venv-gpu/bin/python`. Optional ConvNeXt tests are skipped if `timm` is absent;
 the CUDA training-step test is skipped when a GPU is inaccessible.
